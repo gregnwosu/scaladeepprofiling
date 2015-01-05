@@ -1,0 +1,34 @@
+#!/bin/bash
+
+sudo echo "0" > /proc/sys/kernel/kptr_restrict
+# modify these variables
+JAVA_HOME=/usr/lib/jvm/jdk
+PERF_AGENT_HOME=/home/greg/lib/jvmperf/perf-map-agent
+FLAMEGRAPH_HOME=/home/greg/lib/jvmperf/FlameGraph
+PERF_JAVA_HOME=/home/greg/lib/jvmperf/openjdk8clean/build/linux-x86_64-normal-server-release/jdk/
+SBT_OPTS="-Xms512M -Xmx1536M -Xss1M -XX:+CMSClassUnloadingEnabled -XX:MaxPermSize=256M "
+PERF_JAVA_TOOLS_HOME=/home/greg/lib/jvmperf/openjdk8clean/build/linux-x86_64-normal-server-release/images/j2sdk-image/lib
+
+# need to modify this as i havent made this a variable yet
+(${JAVA_HOME}/bin/java $SBT_OPTS -jar /home/greg/lib/sbt/bin/sbt-launch.jar "test") &
+
+
+sbtshellpid=$!
+sbtpid=$(pgrep -n java)
+echo sbtpid is ${sbtpid}
+ps -ef | grep java
+(cd ${PERF_AGENT_HOME} && exec perf record -m 2 -F 99 -p $sbtpid -g  )  &
+
+
+(cd ${PERF_AGENT_HOME} && exec ${JAVA_HOME}/bin/java -cp ${PERF_AGENT_HOME}/attach-main.jar:${JAVA_HOME}/lib/tools.jar net.virtualvoid.perf.AttachOnce ${sbtpid}) &
+
+
+echo "attached successfully"
+wait $sbtshellpid
+
+
+(cd ${PERF_AGENT_HOME} && exec perf script > /tmp/${sbtpid}-out.stacks)
+
+(cd ${FLAMEGRAPH_HOME} && exec ${FLAMEGRAPH_HOME}/stackcollapse-perf.pl < /tmp/${sbtpid}-out.stacks | ${FLAMEGRAPH_HOME}/flamegraph.pl --color=java  > /tmp/${sbtpid}-out.svg)
+ echo  /tmp/${sbtpid}-out.svg
+echo DONE!!
